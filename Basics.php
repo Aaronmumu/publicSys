@@ -6,189 +6,549 @@
  * Time: 16:39
  */
 
-class ForPublicSystemService_Basics extends Common_ForPublicSystemService
+class AskPublicSystemService_Basics extends Common_AskPublicSystemService
 {
-    public function __construct()
-    {
-        parent::__construct();
-    }
-
-
     /**
-     * 获取运输方式
-     */
-    public function getShippingMethodList($params = array())
-    {
-        $return = array(
-            'ask' => 'Failure',
-            'message'   =>  '',
-            'data' => array()
-        );
-        try{
-            $con['sm_status']=1;//表示可用
-            $warehouseCode = empty($params['warehouseCode']) ? '' : $params['warehouseCode'];
-            if(isset($params['smCodeType']) && $params['smCodeType']!=''){
-                $con['sm_code_type']=$params['smCodeType'];
-            }
-            if (!empty($warehouseCode)) {
-                $warehouseRow = ServiceRead_Warehouse::getByField($warehouseCode, 'warehouse_code');
-                if(!empty($warehouseRow['warehouse_id'])){
-                    $con['warehouse_id']=$warehouseRow['warehouse_id'];
-                }
-            }
-            $showField=array(
-                'shipping_method.sm_code as code',
-                'shipping_method.sm_name_cn as name',
-                'shipping_method.sm_name as name_en',
-                'shipping_method.sm_code_type as type',
-                'shipping_method.sm_is_signature as sm_is_signature',
-                'warehouse.warehouse_code',
-                'sp.sp_code'
-
-            );
-            $shippingModl=new Table_ShippingMethod();
-            $data=$shippingModl->getBymethodSettingServiceProvider($con,$showField);
-            $return['ask']  = 'Success';
-            $return['data'] = $data;
-        }catch (Exception $e){
-            $return['message'] = $e->getMessage();
-        }
-        return $return;
-    }
-
-    /**
-     * @desc 获取仓库列表
+     * 获取订阅列表
+     * @param $condition
+     * @param string $type
      * @return array
      */
-    public function getWarehouse($params)
+    public function getAPISubscribeList($condition = [], $type = '')
     {
-        $return = array(
-            'ask' => 'Failure',
-            'data' => array(),
-            'message'=>''
-        );
-        try {
-            $pageSize = empty($params['pageSize']) ? 0 : $params['pageSize'];
-            $page = empty($params['page']) ? 0 : $params['page'];
-            $con = array('warehouse_status' => 1);
-            $return['pagination'] = array(
-                'page' => $page,
-                'pageSize' => $pageSize
-            );
-            if(isset($params['warehouseType']) && $params['warehouseType']!==''){
-                $con['warehouse_type']=$params['warehouseType'];
-            }
-            $warehouse = new Table_Warehouse();
-            $count = $warehouse->getByCondition($con,'count(*)');
-            $return['count'] = $count;
-            $return['nextPage'] = $pageSize * $page && $pageSize * $page < $count ? 'true' : 'false';
-            $field = array(
-                'warehouse_code',
-                'country_code',
-                'warehouse_desc as warehouse_name',
-                'warehouse_id',
-                'warehouse_type'
-            );
-            $country = $warehouse->getByCondition($con,$field,$pageSize, $page);
-            $return['data'] = $country;
-            $return['ask'] = 'Success';
-            $return['message'] = 'Success';
-        } catch (Exception $e) {
-            if($e->getCode()==42){
-                $return['ask'] = 'Failure';
-                $return['message'] = Ec::Lang('system error');
-                $return['Error'] = array(
-                    'errMessage' => Ec::Lang('system error'),
-                    'errCode' => Enum_ErrorCode::commonSystemError
-                );
-                Ec::showError($e->getFile().$e->getLine().$e->getMessage(),'getRegionForReceiving'.date('Y-m-d'));
-            }else{
-                $return['ask'] = 'Failure';
-                $return['message'] = $e->getMessage();
-                $return['Error'] = array(
-                    'errMessage' => $e->getMessage(),
-                    'errCode' => $e->getCode()
-                );
-            }
-        }
-        return $return;
-    }
+        $list = [];
 
-    /*获取金融客户代码*/
-    public function GetFinancialCustomerCode($params){
-        $return = array(
-            'ask' => 'Failure',
-            'data' => array(),
-            'message'=>''
-        );
-        try {
-            $pageSize = empty($params['pageSize']) ? 0 : $params['pageSize'];
-            $page = empty($params['page']) ? 0 : $params['page'];
-            $con = array('warehouse_status' => 1);
-            $return['pagination'] = array(
-                'page' => $page,
-                'pageSize' => $pageSize
-            );
-            if(isset($params['warehouseType']) && $params['warehouseType']!==''){
-                $con['warehouse_type']=$params['warehouseType'];
-            }
-            $FinanceCustomer = new Table_FinanceCustomer();
-            $count = $FinanceCustomer->getFinanceCustomer(array(),'count(*)');
-            $return['count'] = $count;
-            $return['nextPage'] = $pageSize * $page && $pageSize * $page < $count ? 'true' : 'false';
-            $data = $FinanceCustomer->getFinanceCustomer(array(),'financial_customer_code',$pageSize, $page);
-            $return['data'] = $data;
-            $return['ask'] = 'Success';
-            $return['message'] = 'Success';
-        } catch (Exception $e) {
-            $return['message'] = $e->getMessage();
-        }
-        return $return;
-    }
+        $condition = [
+            'codes' => isset($condition['smt_code_in']) ? $condition['smt_code_in'] : [],
+            'method' => 0,//0 API; 1 邮件订阅
+        ];
 
-    //验证外部商品编码是否已使用
-    public function IsUseExternalSKU($params){
-        $return = array(
-            'ask' => 'Failure',
-            'data' =>array(),
-            'message'=>''
-        );
-        try {
+        $this->apiCode = '0010007';
+        $this->rightReturnFormat = [
+            [
+                'SubscribeTypeId',
+                'Code',
+                'Name',
+                'Type',
+                'Method',
+            ]
+        ];
 
-            $con['product_barcode']=$params['ExternalSKU'];
-            if(isset($params['ExternalSKUs']) && !empty($params['ExternalSKUs'] && is_array($params['ExternalSKUs']))){
-                if(count($params['ExternalSKUs'])>100){
-                    throw new Exception('数组最大数量100个');
-                }
-                $con['product_barcode_in']=$params['ExternalSKUs'];
-            }
-            if(empty($con['product_barcode']) && empty($con['product_barcode_in'])){
-                throw new Exception('参数必填');
-            }
-            //新的入库单
-            $GcReceiving =new Table_GcReceivingDetail();
-            $data = $GcReceiving->getByCondition($con,array('product_barcode'));
-            if(!empty($data)){
-                //存在
-                $skus=array_column($data,'product_barcode');
-                $return['data']=array_unique($skus);
-            }else{
-                //旧入库单
-                $ReceivingDetail = new Table_ReceivingDetail();
-                $data = $ReceivingDetail->getByCondition($con,array('product_barcode'));
-                if(!empty($data)){
-                    $skus=array_column($data,'product_barcode');
-                    $return['data']=array_unique($skus);
+        try {
+            $sendPost = $this->sendPost($this->apiCode, $condition);
+            $validatorResponseParams = $this->validatorResponseParams($sendPost);
+
+            if ($validatorResponseParams['ask'] == Common_AskPublicSystemService::SUCCESS) {
+                $list = $validatorResponseParams['data'];
+                if (!empty($list)) {
+                    $list = self::mappingRelationArrFormat([
+                        'smt_id' => 'SubscribeTypeId',
+                        'smt_code' => 'Code',
+                        'smt_name' => 'Name',
+                        'smt_type' => 'Type',
+                        'smt_method' => 'Method',
+                    ], $list);
+
+                    switch ($type) {
+                        case 'getByField' :
+                            $list = $list[0];
+                            break;
+                    }
                 }
             }
-            $return['ask'] = 'Success';
-            $return['message'] = 'Success';
         } catch (Exception $e) {
-            $return['message'] = $e->getMessage();
+            $list = [];
         }
-        return $return;
+        return $list;
     }
 
+    /**
+     * 客户是否存在API订阅
+     * @param $customerCode
+     * @param $subscribeTypeCode
+     * @return bool 返回 false || messageChannelKey(string)
+     */
+    public function getExistAPISubscribe($customerCode, $subscribeTypeCode)
+    {
+        $messageChannelKey = fasle;
 
+        $this->apiCode = '0010008';
+        $this->rightReturnFormat = [
+            'IsExist' => '布尔型',
+            'MessageChannelKey' => 'key值',
+        ];
+
+        try {
+            $sendPost = $this->sendPost($this->apiCode, [
+                'CustomerCode' => $customerCode,
+                'SubscribeTypeCode' => $subscribeTypeCode,
+            ]);
+            $validatorResponseParams = $this->validatorResponseParams($sendPost, $this->rightReturnFormat);
+
+            if ($validatorResponseParams['ask'] == Common_AskPublicSystemService::SUCCESS
+                && $validatorResponseParams['data']['IsExist'] === true
+            ) {
+                $messageChannelKey = $validatorResponseParams['data']['MessageChannelKey'];
+            }
+        } catch (Exception $e) {
+            $messageChannelKey = fasle;
+        }
+        return $messageChannelKey;
+    }
+
+    /**
+     * 获取当前登录用户的角色类型及绑定的客户
+     * @return array
+     */
+    public function getUserPower()
+    {
+        $result = [
+            'ask' => Common_AskPublicSystemService::FAIL,
+            'errMessage' => '',
+            'data' => []
+        ];
+
+        $this->apiCode = '0010010';
+        $this->rightReturnFormat = [
+            'type' => '-1/0/1/2;-1即其他角色;0客服代表;1销售经理;2 客服代表&&销售经理;',
+            'customerCode' => '拥有的客户code数组',
+        ];
+
+        try {
+            $sendPost = $this->sendPost($this->apiCode);
+            $validatorResponseParams = $this->validatorResponseParams($sendPost, $this->rightReturnFormat);
+
+            if ($validatorResponseParams['ask'] == Common_AskPublicSystemService::SUCCESS) {
+                $result['ask'] = Common_AskPublicSystemService::SUCCESS;
+                $result['data'] = $validatorResponseParams['data'];
+            } else {
+                throw new Exception($validatorResponseParams['errMessage']);
+            }
+        } catch (Exception $e) {
+            $result['errMessage'] = $e->getMessage();
+        }
+        return $result;
+    }
+
+    /**
+     * 获取当前登录用户的角色类型及绑定的客户
+     * @param string $type
+     * @return array
+     */
+    public function getCurrUserPower()
+    {
+        $result = [
+            'errMessage' => false,
+            'isSelectSelfRelation' => false,
+            'customerCode' => [],
+        ];
+        $getCustomerByUser = $this->getUserPower();
+
+        if ($getCustomerByUser['ask'] == Common_AskPublicSystemService::SUCCESS) {
+            $result['isSelectSelfRelation'] = in_array($getCustomerByUser['data']['type'], [0, 1, 2]) ? true : false;
+            $result['customerCode'] = $getCustomerByUser['data']['customerCode'];
+        } else {
+            $result['errMessage'] = $getCustomerByUser['errMessage'];
+        }
+        return $result;
+    }
+
+    /**
+     * 获取用户的客户查询权限
+     * @param $uid
+     * @return array
+     */
+    public static function getUserHadCustomers($uid = '')
+    {
+        $result = [
+            'errMessage' => false,
+            'isSelectSelfRelation' => false,
+            'customerCode' => [],
+        ];
+
+        try {
+            $getCustomerByUser = Common_CurrentUser::getCurrentUser();
+            $getCustomerByUser['UserHadCustomers'] = $getCustomerByUser['UserHadCustomers']['ResponseData'];
+            if (!empty($getCustomerByUser['UserHadCustomers'])
+                && isset($getCustomerByUser['UserHadCustomers']['CustomerPermissionType'])
+                && in_array($getCustomerByUser['UserHadCustomers']['CustomerPermissionType'], [0, 1])
+            ) {
+                $result['isSelectSelfRelation'] = $getCustomerByUser['UserHadCustomers']['CustomerPermissionType'] == 1 ? true : false;
+                $result['customerCode'] = $getCustomerByUser['UserHadCustomers']['CustomerList'];
+                if (!empty($result['customerCode'])) {
+                    $customer = Service_Customer::getByCondition([
+                        'customer_code_in' => $result['customerCode']
+                    ], 'customer_id');
+                    $result['customerId'] = array_column($customer, 'customer_id');
+                }
+            } else {
+                $result['errMessage'] = '获取用户拥有的客户失败';
+            }
+        } catch (Exception $e) {
+            $result['errMessage'] = $e->getMessage();
+        }
+
+        return $result;
+    }
+
+    /**
+     * 获取当前用户查询
+     * @param array $return
+     * @param array $condition 查询条件
+     * @param int $type 区分不同情况的不同处理无特殊意义
+     * @return array
+     * @throws Exception
+     */
+    public function getCurrUserPowerSelect($return, $condition, $type = 1)
+    {
+        if (!is_array($return) || !is_array($condition)) {
+            throw new Exception('传入参数必须为数组');
+        }
+        //是否只查询自己关联的客户客销
+        $userPower = self::getUserHadCustomers();
+
+        switch ($type) {
+            case 1 :
+                if ($userPower['errMessage'] !== false) {
+                    $return['message'] = $userPower['errMessage'];
+                    die(Zend_Json::encode($return));
+                }
+                if ($userPower['isSelectSelfRelation'] === true) {
+                    if (empty($userPower['customerCode'])) {
+                        die(Zend_Json::encode($return));
+                    } else {
+                        $condition['customer_code_in'] = $userPower['customerCode'];
+                    }
+                }
+                return [
+                    $return,
+                    $condition,
+                ];
+                break;
+            case 2 :
+                if ($userPower['errMessage'] !== false) {
+                    die('no data');
+                }
+                if ($userPower['isSelectSelfRelation'] === true) {
+                    if (empty($userPower['customerCode'])) {
+                        die('no data');
+                    } else {
+                        $condition['customer_code_in'] = $userPower['customerCode'];
+                    }
+                }
+                return [$condition];
+                break;
+            case 3 :
+                if ($userPower['errMessage'] !== false) {
+                    header("Content-type: text/html; charset=utf-8");
+                    echo "No Data";
+                    exit;
+                }
+                if ($userPower['isSelectSelfRelation'] === true) {
+                    if (empty($userPower['customerCode'])) {
+                        header("Content-type: text/html; charset=utf-8");
+                        echo "No Data";
+                        exit;
+                    } else {
+                        $condition['customer_code_in'] = $userPower['customerCode'];
+                    }
+                }
+                return [$condition];
+                break;
+            case 4 :
+                if ($userPower['errMessage'] !== false) {
+                    $return['message'] = $userPower['errMessage'];
+                    die(Zend_Json::encode($return));
+                }
+                if ($userPower['isSelectSelfRelation'] === true) {
+                    if (empty($userPower['customerCode'])) {
+                        die(Zend_Json::encode($return));
+                    } else {
+                        if (!empty($condition['customer_code'])) {
+                            unset($condition['customer_code_in']);
+                            if (!in_array($condition['customer_code'], $userPower['customerCode'])) {
+                                $return['message'] = "当前账户无权限查看" . $condition['customer_code'];
+                                die(Zend_Json::encode($return));
+                            }
+                        }
+                    }
+                }
+                return [
+                    $return,
+                    $condition,
+                ];
+                break;
+            case 5 :
+                if ($userPower['errMessage'] !== false) {
+                    $return['message'] = $userPower['errMessage'];
+                    die(Zend_Json::encode($return));
+                }
+                if ($userPower['isSelectSelfRelation'] === true) {
+                    if (empty($userPower['customerCode'])) {
+                        $return['message'] = "当前账户无关联客户";
+                        die(Zend_Json::encode($return));
+                    } else {
+                        if (!in_array($condition['customer_code'], $userPower['customerCode'])) {
+                            $return['message'] = "当前账户无权限查看" . $condition['customer_code'];
+                            die(Zend_Json::encode($return));
+                        }
+                    }
+                }
+                return [
+                    $return,
+                    $condition,
+                ];
+                break;
+            case 6 :
+                if ($userPower['errMessage'] !== false) {
+                    $condition['customer_code_in'] = [-1];
+                } elseif ($userPower['isSelectSelfRelation'] === true) {
+                    if (empty($userPower['customerCode'])) {
+                        $condition['customer_code_in'] = [-1];
+                    } else {
+                        $condition['customer_code_in'] = $userPower['customerCode'];
+                    }
+                }
+                return [$condition];
+                break;
+            case 7 :
+                $data = '';
+                if ($userPower['errMessage'] !== false) {
+                    $data = '-1';
+                } elseif ($userPower['isSelectSelfRelation'] === true) {
+                    if (empty($userPower['customerCode'])) {
+                        $data = '-1';
+                    } else {
+                        foreach ($userPower['customerCode'] as $code) {
+                            $data .= "'$code',";
+                        }
+                    }
+                }
+                $condition['customer_code_in'] = trim($data, ',');
+                return [$condition];
+                break;
+            case 8 :
+                if ($userPower['errMessage'] !== false) {
+                    die('没有数据');
+                }
+                if ($userPower['isSelectSelfRelation'] === true) {
+                    if (empty($userPower['customerCode'])) {
+                        die('没有数据');
+                    } else {
+                        $condition['customer_code_in'] = $userPower['customerCode'];
+                    }
+                }
+                return [$condition];
+                break;
+            case 9 :
+                if ($userPower['errMessage'] !== false) {
+                    $return['message'] = $userPower['errMessage'];
+                    die(Zend_Json::encode($return));
+                }
+                if ($userPower['isSelectSelfRelation'] === true) {
+                    if (empty($userPower['customerCode'])) {
+                        die(Zend_Json::encode($return));
+                    } else {
+                        if (!empty($condition['customer_code']) && !in_array($condition['customer_code'], $userPower['customerCode'])) {
+                            die($return);
+                        }
+                        if (empty($condition['customer_code'])) {
+                            $condition['customer_code'] = $userPower['customerCode'];
+                        }
+                    }
+                }
+                return [
+                    $return,
+                    $condition,
+                ];
+                break;
+            case 10 :
+                if ($userPower['errMessage'] !== false) {
+                    $return['message'] = $userPower['errMessage'];
+                    die(Zend_Json::encode($return));
+                }
+                if ($userPower['isSelectSelfRelation'] === true) {
+                    if (empty($userPower['customerCode'])) {
+                        $return['message'] = 'No Data';
+                        die(Zend_Json::encode($return));
+                    } else {
+                        $condition['customer_code_in'] = $userPower['customerCode'];
+                    }
+                }
+                return [
+                    $return,
+                    $condition,
+                ];
+                break;
+            case 11 :
+                return $userPower;
+                break;
+            case 12 :
+                if ($userPower['errMessage'] !== false) {
+                    $return['message'] = $userPower['errMessage'];
+                    die(Zend_Json::encode($return));
+                }
+                if ($userPower['isSelectSelfRelation'] === true) {
+                    if (empty($userPower['customerCode'])) {
+                        die(Zend_Json::encode($return));
+                    } else {
+                        $condition['customer_id_in'] = $userPower['customerId'];
+                    }
+                }
+                return [
+                    $return,
+                    $condition,
+                ];
+                break;
+            case 13 :
+                if ($userPower['errMessage'] !== false) {
+                    $return['message'] = $userPower['errMessage'];
+                    die(Zend_Json::encode($return));
+                }
+                if ($userPower['isSelectSelfRelation'] === true) {
+                    if (empty($userPower['customerCode'])) {
+                        die(Zend_Json::encode($return));
+                    } else {
+                        $condition['customer_id_in'] = $userPower['customerId'];
+                    }
+                }
+                return [
+                    $condition,
+                ];
+                break;
+        }
+    }
+
+    /**
+     * 获取访问Token
+     * @param $requestData
+     * @return array
+     */
+    public function getAccessToken($requestData)
+    {
+        $result = [
+            'ask' => Common_AskPublicSystemService::FAIL,
+            'errMessage' => '',
+            'AccessToken' => ''
+        ];
+
+        $this->apiCode = '0050001';
+        $this->rightReturnFormat = [
+            'AccessToken' => 'AccessToken'
+        ];
+
+        try {
+            $sendPost = $this->sendPost($this->apiCode, $requestData);
+            $validatorResponseParams = $this->validatorResponseParams($sendPost, $this->rightReturnFormat);
+
+            if ($validatorResponseParams['ask'] == Common_AskPublicSystemService::SUCCESS) {
+                $result['ask'] = Common_AskPublicSystemService::SUCCESS;
+                $result['AccessToken'] = $validatorResponseParams['data'];
+            } else {
+                throw new Exception($validatorResponseParams['errMessage']);
+            }
+        } catch (Exception $e) {
+            $result['errMessage'] = $e->getMessage();
+        }
+        return $result;
+    }
+
+    /**
+     * 获取用户权限
+     * @param $requestData
+     * @return array
+     */
+    public function getUserPermission($requestData)
+    {
+        $result = [
+            'ask' => Common_AskPublicSystemService::FAIL,
+            'errMessage' => '',
+            'data' => []
+        ];
+
+        $this->apiCode = '0050002';
+        $this->rightReturnFormat = [];
+
+        try {
+            $sendPost = $this->sendPost($this->apiCode, $requestData);
+            $validatorResponseParams = $this->validatorResponseParams($sendPost);
+
+            if ($validatorResponseParams['ask'] == Common_AskPublicSystemService::SUCCESS) {
+                $result['ask'] = Common_AskPublicSystemService::SUCCESS;
+                $result['data'] = $validatorResponseParams['data'];
+            } else {
+                throw new Exception($validatorResponseParams['errMessage']);
+            }
+        } catch (Exception $e) {
+            $result['errMessage'] = $e->getMessage();
+        }
+        return $result;
+    }
+
+    /**
+     * 获取角色
+     * @param $roleId
+     * @return array
+     */
+    public function getRole($roleId)
+    {
+        $result = [
+            'ask' => Common_AskPublicSystemService::FAIL,
+            'errMessage' => '',
+            'data' => []
+        ];
+
+        $this->apiCode = '0050003';
+        $this->rightReturnFormat = [
+            'RoleId' => '角色ID',
+            'Name' => '角色名称',
+            'NameEn' => '角色英文名称',
+        ];
+
+        try {
+            if (empty($roleId)) {
+                throw new Exception('参数错误：roleId不能为空');
+            }
+
+            $sendData = [
+                'RoleId' => $roleId
+            ];
+
+            $sendPost = $this->sendPost($this->apiCode, $sendData);
+            $validatorResponseParams = $this->validatorResponseParams($sendPost, $this->rightReturnFormat);
+
+            if ($validatorResponseParams['ask'] == Common_AskPublicSystemService::SUCCESS) {
+                $result['ask'] = Common_AskPublicSystemService::SUCCESS;
+                $result['data'] = $validatorResponseParams['data'];
+            } else {
+                throw new Exception($validatorResponseParams['errMessage']);
+            }
+        } catch (Exception $e) {
+            $result['errMessage'] = $e->getMessage();
+        }
+        return $result;
+    }
+
+    /**
+     * 获取当前用户
+     * @param int $type
+     * @throws Exception
+     */
+    public function getCurrUserRoleName($roleId = 'currUser', $type = 1)
+    {
+        if ($roleId == 'currUser') {
+            $userInfo = Common_CurrentUser::getCurrentUser();
+            $roleId = $userInfo['RoleId'];
+        }
+        $getRole = (new AskPublicSystemService_Basics())->getRole($roleId);
+        switch ($type) {
+            case 1 :
+                if ($getRole['ask'] == Common_AskPublicSystemService::SUCCESS) {
+                    return $getRole['data']['Name'];
+                } else {
+                    throw new Exception($getRole['errMessage']);
+                }
+                break;
+        }
+    }
 }
-
